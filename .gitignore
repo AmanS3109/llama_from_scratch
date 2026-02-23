@@ -1,9 +1,11 @@
-# Byte-compiled / optimized / DLL files
+# ============================================
+# Tiny Llama — .gitignore
+# ============================================
+
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Jupyter Notebook checkpoints
 .ipynb_checkpoints
 
 # Virtual environments
@@ -12,51 +14,50 @@ env/
 venv/
 llm_env/
 
-# Environment variables
-.env
-
-# VSCode settings
-.vscode/
-
-# PyTorch cache
+# --- Training artifacts (regenerable) ---
+data/
+out/
 *.pt
 *.pth
 *.ckpt
 
-# MacOS and Linux
-.DS_Store
-*.swp
-
-# Logs
-*.log
-
-# PyInstaller
-dist/
-build/
-*.spec
-
-# Pytest
-.cache/
-.pytest_cache/
-
-# Coverage reports
-htmlcov/
-.coverage
-coverage.xml
-
-# Unit test / debug artifacts
-*.out
-*.err
-*.prof
-*.tmp
-*.bak
-*.old
-
-# Compiled executables
+# --- Compiled binaries ---
 *.exe
 *.out
 *.dll
+*.o
+*.wasm
 
-# Project specific
-data/
-out/
+# --- Emscripten SDK (if cloned locally) ---
+emsdk/
+
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# --- Environment ---
+.env
+.env.*
+
+# --- Misc ---
+*.log
+*.tmp
+*.bak
+*.old
+*.prof
+*.err
+dist/
+build/
+*.spec
+.cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+.reflog.txt
+.gitreflog.txt

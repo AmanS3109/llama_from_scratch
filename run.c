@@ -490,6 +490,13 @@ int main(int argc, char *argv[]) {
         token = next_token;
         pos++;
 
+        // Stop on double newline (end of answer in Q&A format)
+        if (i >= prompt_len - 1) {
+            static char prev_char = 0;
+            if (prev_char == '\n' && c == '\n') break;
+            prev_char = c;
+        }
+
         if (pos >= config.max_seq_len - 1) break;
     }
 
