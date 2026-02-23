@@ -26,7 +26,6 @@ out/
 *.out
 *.dll
 *.o
-*.wasm
 
 # --- Emscripten SDK (if cloned locally) ---
 emsdk/
