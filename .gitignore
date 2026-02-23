@@ -51,3 +51,12 @@ coverage.xml
 *.tmp
 *.bak
 *.old
+
+# Compiled executables
+*.exe
+*.out
+*.dll
+
+# Project specific
+data/
+out/

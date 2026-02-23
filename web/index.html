@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tiny Llama — In-Browser LLM</title>
+    <meta name="description" content="A 4.5M parameter Llama model running entirely in your browser via WebAssembly. No server, no GPU — pure edge AI.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0f;
+            --surface: #12121a;
+            --surface-2: #1a1a2e;
+            --border: #2a2a40;
+            --text: #e4e4ef;
+            --text-dim: #8888a0;
+            --accent: #7c5bf5;
+            --accent-glow: #7c5bf540;
+            --green: #4ade80;
+            --orange: #fb923c;
+            --red: #f87171;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        /* Ambient background glow */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 20%, #7c5bf510 0%, transparent 50%),
+                        radial-gradient(circle at 70% 80%, #4ade8008 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 860px;
+            padding: 2rem 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #7c5bf5, #a78bfa, #c4b5fd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        header p {
+            color: var(--text-dim);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .badge-row {
+            display: flex;
+            justify-content: center;
+            gap: 0.6rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.3rem 0.7rem;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .badge .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+        .badge .dot.green { background: var(--green); }
+        .badge .dot.orange { background: var(--orange); }
+
+        /* Status Card */
+        .status-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .status-card.loading { border-color: var(--orange); }
+        .status-card.ready { border-color: var(--green); }
+        .status-card.error { border-color: var(--red); }
+
+        .status-icon {
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        .status-card.loading .status-icon { background: #fb923c20; }
+        .status-card.ready .status-icon { background: #4ade8020; }
+
+        .status-text h3 { font-size: 0.9rem; font-weight: 600; }
+        .status-text p { font-size: 0.8rem; color: var(--text-dim); margin-top: 2px; }
+
+        /* Progress bar */
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--surface-2);
+            border-radius: 2px;
+            margin-top: 0.8rem;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar.active { display: block; }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--green));
+            border-radius: 2px;
+            transition: width 0.3s;
+            width: 0%;
+        }
+
+        /* Input Area */
+        .input-area {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .input-area label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .prompt-input {
+            width: 100%;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 60px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .prompt-input:focus { border-color: var(--accent); }
+
+        .controls-row {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .control-group label {
+            font-size: 0.72rem;
+            margin-bottom: 0;
+        }
+
+        .control-group input[type="range"] {
+            width: 120px;
+            accent-color: var(--accent);
+        }
+
+        .control-group .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent);
+        }
+
+        .btn {
+            padding: 0.65rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c5bf5, #6d4de6);
+            color: white;
+            box-shadow: 0 4px 15px var(--accent-glow);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--surface-2);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover { border-color: var(--text-dim); color: var(--text); }
+
+        .btn-group { display: flex; gap: 0.5rem; margin-left: auto; }
+
+        /* Output Area */
+        .output-area {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .output-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .output-header h3 {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .output-stats {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .output-stats span { color: var(--green); }
+
+        #output {
+            padding: 1.2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            line-height: 1.7;
+            min-height: 200px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: var(--text);
+        }
+
+        #output .prompt-text { color: var(--accent); }
+        #output .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.1em;
+            background: var(--accent);
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 1px;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Footer */
+        footer {
+            margin-top: 2rem;
+            text-align: center;
+            padding-bottom: 2rem;
+        }
+
+        footer p {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            line-height: 1.6;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 18px; height: 18px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 600px) {
+            header h1 { font-size: 1.6rem; }
+            .controls-row { flex-direction: column; }
+            .btn-group { margin-left: 0; width: 100%; }
+            .btn-group .btn { flex: 1; justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦙 Tiny Llama</h1>
+            <p>A 4.5M parameter LLM running <strong>entirely in your browser</strong> via WebAssembly.<br>No server. No GPU. Pure edge AI.</p>
+            <div class="badge-row">
+                <div class="badge"><span class="dot"></span> Llama Architecture</div>
+                <div class="badge"><span class="dot green"></span> WebAssembly</div>
+                <div class="badge"><span class="dot orange"></span> 4.5M Parameters</div>
+            </div>
+        </header>
+
+        <div id="statusCard" class="status-card loading">
+            <div class="status-icon"><div class="spinner"></div></div>
+            <div class="status-text">
+                <h3 id="statusTitle">Loading Model...</h3>
+                <p id="statusDesc">Downloading weights (17 MB)...</p>
+            </div>
+        </div>
+        <div class="progress-bar active" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="input-area">
+            <label>Prompt</label>
+            <textarea class="prompt-input" id="promptInput" placeholder="Enter a prompt..." disabled>ROMEO:
+</textarea>
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>Temperature</label>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <input type="range" id="tempSlider" min="0" max="1.5" step="0.05" value="0.8">
+                        <span class="value" id="tempValue">0.80</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Max Tokens</label>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <input type="range" id="tokensSlider" min="50" max="250" step="10" value="200">
+                        <span class="value" id="tokensValue">200</span>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="clearBtn" disabled>Clear</button>
+                    <button class="btn btn-primary" id="generateBtn" disabled>
+                        ▶ Generate
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="output-area">
+            <div class="output-header">
+                <h3>Output</h3>
+                <div class="output-stats" id="outputStats"></div>
+            </div>
+            <div id="output"><span style="color:var(--text-dim)">Model output will appear here...</span></div>
+        </div>
+
+        <footer>
+            <p>
+                Built from scratch — PyTorch training → C inference → WebAssembly<br>
+                Architecture: RMSNorm · RoPE · GQA · SwiGLU · KV Cache
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // ================================================================
+        // State
+        // ================================================================
+        let wasmModule = null;
+        let modelReady = false;
+        let generating = false;
+
+        // DOM refs
+        const statusCard = document.getElementById('statusCard');
+        const statusTitle = document.getElementById('statusTitle');
+        const statusDesc = document.getElementById('statusDesc');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const promptInput = document.getElementById('promptInput');
+        const generateBtn = document.getElementById('generateBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const output = document.getElementById('output');
+        const outputStats = document.getElementById('outputStats');
+        const tempSlider = document.getElementById('tempSlider');
+        const tempValue = document.getElementById('tempValue');
+        const tokensSlider = document.getElementById('tokensSlider');
+        const tokensValue = document.getElementById('tokensValue');
+
+        // Slider bindings
+        tempSlider.oninput = () => tempValue.textContent = parseFloat(tempSlider.value).toFixed(2);
+        tokensSlider.oninput = () => tokensValue.textContent = tokensSlider.value;
+
+        // ================================================================
+        // Load Model
+        // ================================================================
+        async function loadModel() {
+            try {
+                // 1. Load WASM module
+                statusTitle.textContent = 'Loading WASM engine...';
+                statusDesc.textContent = 'Compiling WebAssembly module...';
+                progressFill.style.width = '10%';
+
+                const script = document.createElement('script');
+                script.src = 'llama.js';
+                document.head.appendChild(script);
+
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                });
+
+                // Initialize the WASM module
+                wasmModule = await Module();
+                progressFill.style.width = '30%';
+
+                // 2. Fetch model weights
+                statusTitle.textContent = 'Downloading weights...';
+                statusDesc.textContent = 'Fetching tiny_llama.bin (17 MB)...';
+
+                const modelResp = await fetch('tiny_llama.bin');
+                const modelTotal = parseInt(modelResp.headers.get('content-length') || '0');
+                const modelReader = modelResp.body.getReader();
+                let modelChunks = [];
+                let modelLoaded = 0;
+
+                while (true) {
+                    const { done, value } = await modelReader.read();
+                    if (done) break;
+                    modelChunks.push(value);
+                    modelLoaded += value.length;
+                    if (modelTotal > 0) {
+                        const pct = 30 + (modelLoaded / modelTotal) * 50;
+                        progressFill.style.width = pct + '%';
+                        statusDesc.textContent = `Fetching weights... ${(modelLoaded / 1024 / 1024).toFixed(1)} / ${(modelTotal / 1024 / 1024).toFixed(1)} MB`;
+                    }
+                }
+
+                const modelData = new Uint8Array(modelLoaded);
+                let offset = 0;
+                for (const chunk of modelChunks) {
+                    modelData.set(chunk, offset);
+                    offset += chunk.length;
+                }
+
+                // 3. Fetch tokenizer
+                statusTitle.textContent = 'Loading tokenizer...';
+                progressFill.style.width = '85%';
+                const tokResp = await fetch('tokenizer.bin');
+                const tokData = new Uint8Array(await tokResp.arrayBuffer());
+
+                // 4. Copy to WASM memory and init
+                statusTitle.textContent = 'Initializing model...';
+                progressFill.style.width = '90%';
+
+                const modelPtr = wasmModule._malloc(modelData.length);
+                wasmModule.HEAPU8.set(modelData, modelPtr);
+
+                const tokPtr = wasmModule._malloc(tokData.length);
+                wasmModule.HEAPU8.set(tokData, tokPtr);
+
+                const vocabSize = wasmModule._init_model(modelPtr, modelData.length, tokPtr, tokData.length);
+
+                wasmModule._free(modelPtr);
+                wasmModule._free(tokPtr);
+
+                if (vocabSize <= 0) throw new Error('Model initialization failed');
+
+                // Done!
+                progressFill.style.width = '100%';
+                statusCard.className = 'status-card ready';
+                statusCard.querySelector('.status-icon').innerHTML = '✓';
+                statusTitle.textContent = 'Model Ready';
+                statusDesc.textContent = `Loaded ${(modelLoaded / 1024 / 1024).toFixed(1)} MB · vocab_size=${vocabSize} · Running in WASM`;
+
+                setTimeout(() => { progressBar.classList.remove('active'); }, 500);
+
+                modelReady = true;
+                generateBtn.disabled = false;
+                clearBtn.disabled = false;
+                promptInput.disabled = false;
+
+            } catch (err) {
+                statusCard.className = 'status-card error';
+                statusCard.querySelector('.status-icon').innerHTML = '✗';
+                statusTitle.textContent = 'Error Loading Model';
+                statusDesc.textContent = err.message;
+                console.error(err);
+            }
+        }
+
+        // ================================================================
+        // Text Generation
+        // ================================================================
+        function softmax(logits, temperature) {
+            if (temperature < 1e-6) {
+                // Greedy: return argmax
+                let maxI = 0;
+                for (let i = 1; i < logits.length; i++) {
+                    if (logits[i] > logits[maxI]) maxI = i;
+                }
+                return maxI;
+            }
+
+            let maxVal = -Infinity;
+            for (let i = 0; i < logits.length; i++) {
+                logits[i] /= temperature;
+                if (logits[i] > maxVal) maxVal = logits[i];
+            }
+
+            let sum = 0;
+            for (let i = 0; i < logits.length; i++) {
+                logits[i] = Math.exp(logits[i] - maxVal);
+                sum += logits[i];
+            }
+
+            // Sample
+            let r = Math.random() * sum;
+            let cumsum = 0;
+            for (let i = 0; i < logits.length; i++) {
+                cumsum += logits[i];
+                if (r < cumsum) return i;
+            }
+            return logits.length - 1;
+        }
+
+        async function generate() {
+            if (!modelReady || generating) return;
+            generating = true;
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Generating...';
+
+            const prompt = promptInput.value;
+            const temperature = parseFloat(tempSlider.value);
+            const maxTokens = parseInt(tokensSlider.value);
+            const vocabSize = wasmModule._get_vocab_size();
+
+            // Reset state for new generation
+            wasmModule._reset_state();
+
+            // Encode prompt
+            const promptTokens = [];
+            for (let i = 0; i < prompt.length; i++) {
+                promptTokens.push(wasmModule._encode_char(prompt.charCodeAt(i)));
+            }
+
+            // Clear output & show prompt
+            output.innerHTML = '<span class="prompt-text"></span><span class="cursor"></span>';
+            const promptSpan = output.querySelector('.prompt-text');
+            const cursor = output.querySelector('.cursor');
+
+            let generatedText = '';
+            let tokenCount = 0;
+            const startTime = performance.now();
+
+            // Process prompt + generate
+            let token = promptTokens[0];
+            promptSpan.textContent = prompt[0]; // Print first char
+
+            for (let i = 0; i < maxTokens; i++) {
+                // Forward pass
+                wasmModule._generate_next(token);
+
+                let nextToken;
+                if (i < promptTokens.length - 1) {
+                    // Still processing prompt
+                    nextToken = promptTokens[i + 1];
+                    // Print prompt character
+                    promptSpan.textContent += String.fromCharCode(wasmModule._decode_token(nextToken));
+                } else {
+                    // Sample from logits
+                    const logitsPtr = wasmModule._get_logits_ptr();
+                    const logits = new Float32Array(wasmModule.HEAPF32.buffer, logitsPtr, vocabSize).slice();
+                    nextToken = softmax(logits, temperature);
+
+                    // Decode and display
+                    const ch = String.fromCharCode(wasmModule._decode_token(nextToken));
+                    generatedText += ch;
+                    tokenCount++;
+
+                    // Update output (insert before cursor)
+                    cursor.insertAdjacentText('beforebegin', ch);
+
+                    // Update stats
+                    const elapsed = (performance.now() - startTime) / 1000;
+                    const tokPerSec = tokenCount / elapsed;
+                    outputStats.innerHTML = `<span>${tokenCount}</span> tokens · <span>${tokPerSec.toFixed(1)}</span> tok/s · ${elapsed.toFixed(1)}s`;
+                }
+
+                token = nextToken;
+
+                // Yield to browser to keep UI responsive
+                if (i % 5 === 0) {
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            // Remove cursor
+            cursor.remove();
+
+            generating = false;
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = '▶ Generate';
+        }
+
+        // ================================================================
+        // Event Listeners
+        // ================================================================
+        generateBtn.addEventListener('click', generate);
+        clearBtn.addEventListener('click', () => {
+            output.innerHTML = '<span style="color:var(--text-dim)">Model output will appear here...</span>';
+            outputStats.innerHTML = '';
+        });
+
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                generate();
+            }
+        });
+
+        // Kick off loading
+        // We need the WASM module factory function — emscripten generates it as `Module`
+        // The script llama.js defines a factory function
+        var Module = null;
+        loadModel();
+    </script>
+</body>
+</html>
