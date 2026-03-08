@@ -90,10 +90,4 @@ Then open `http://localhost:8080` in your browser.
 
 ---
 
-## 📈 Why This Matters (For Recruiters/Engineers)
 
-This repository is a demonstration of **Deep Systems AI Engineering**. 
-
-While it is easy to wrap the OpenAI API in a React interface, building a high-performance inference engine from first principles requires a deep understanding of hardware memory limits, tensor algebra, PyTorch internals, and low-level C pointers. 
-
-By deploying it in WebAssembly, it showcases a highly sought-after industry skill: shifting expensive cloud compute to Edge Devices (browsers/phones) using highly optimized, dependency-free code.
